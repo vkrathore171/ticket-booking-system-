@@ -1,0 +1,130 @@
+import React, { useState } from "react";
+
+export default function App() {
+  const [employees, setEmployees] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [form, setForm] = useState({ id: null, name: "", age: "", department: "", salary: "" });
+  const [editing, setEditing] = useState(false);
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const addEmployee = () => {
+    if (!form.name || !form.age || !form.department || !form.salary) {
+      alert("Please fill all fields");
+      return;
+    }
+    const newEmployee = { ...form, id: Date.now() };
+    setEmployees([...employees, newEmployee]);
+    setForm({ id: null, name: "", age: "", department: "", salary: "" });
+  };
+
+  const deleteEmployee = (id) => {
+    setEmployees(employees.filter((e) => e.id !== id));
+  };
+
+  const editEmployee = (emp) => {
+    setEditing(true);
+    setForm(emp);
+  };
+
+  const updateEmployee = () => {
+    setEmployees(employees.map((e) => (e.id === form.id ? form : e)));
+    setEditing(false);
+    setForm({ id: null, name: "", age: "", department: "", salary: "" });
+  };
+
+  const filteredEmployees = employees.filter(
+    (e) =>
+      e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      e.department.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div style={{ maxWidth: "700px", margin: "40px auto", fontFamily: "Arial, sans-serif" }}>
+      <h2>Employee Management System</h2>
+
+      <div style={{ marginBottom: "20px" }}>
+        <input
+          name="name"
+          placeholder="Name"
+          value={form.name}
+          onChange={handleChange}
+          style={{ marginRight: "10px" }}
+        />
+        <input
+          name="age"
+          type="number"
+          placeholder="Age"
+          value={form.age}
+          onChange={handleChange}
+          style={{ marginRight: "10px" }}
+        />
+        <input
+          name="department"
+          placeholder="Department"
+          value={form.department}
+          onChange={handleChange}
+          style={{ marginRight: "10px" }}
+        />
+        <input
+          name="salary"
+          type="number"
+          placeholder="Salary"
+          value={form.salary}
+          onChange={handleChange}
+          style={{ marginRight: "10px" }}
+        />
+        {editing ? (
+          <button onClick={updateEmployee}>Update</button>
+        ) : (
+          <button onClick={addEmployee}>Add</button>
+        )}
+      </div>
+
+      <input
+        placeholder="Search by name or department"
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        style={{ marginBottom: "20px", width: "100%", padding: "5px" }}
+      />
+
+      <table border="1" width="100%" cellPadding="8">
+        <thead>
+          <tr style={{ backgroundColor: "#f0f0f0" }}>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Age</th>
+            <th>Department</th>
+            <th>Salary</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredEmployees.length === 0 ? (
+            <tr>
+              <td colSpan="6" align="center">
+                No employees found
+              </td>
+            </tr>
+          ) : (
+            filteredEmployees.map((emp) => (
+              <tr key={emp.id}>
+                <td>{emp.id}</td>
+                <td>{emp.name}</td>
+                <td>{emp.age}</td>
+                <td>{emp.department}</td>
+                <td>{emp.salary}</td>
+                <td>
+                  <button onClick={() => editEmployee(emp)}>Edit</button>{" "}
+                  <button onClick={() => deleteEmployee(emp.id)}>Delete</button>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
