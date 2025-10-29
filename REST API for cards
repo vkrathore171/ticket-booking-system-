@@ -1,0 +1,50 @@
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+let cards = [
+  { id: 1, suit: 'Hearts', rank: 'Ace' },
+  { id: 2, suit: 'Spades', rank: 'King' },
+  { id: 3, suit: 'Diamonds', rank: 'Queen' }
+];
+
+app.get('/', (req, res) => {
+  res.send('Welcome to the Playing Card Collection API 🃏');
+});
+
+app.get('/api/cards', (req, res) => {
+  res.json(cards);
+});
+
+app.get('/api/cards/:id', (req, res) => {
+  const card = cards.find(c => c.id === parseInt(req.params.id));
+  if (!card) return res.status(404).json({ message: 'Card not found' });
+  res.json(card);
+});
+
+app.post('/api/cards', (req, res) => {
+  const { suit, rank } = req.body;
+  if (!suit || !rank) return res.status(400).json({ message: 'Suit and Rank are required' });
+  const newCard = { id: cards.length + 1, suit, rank };
+  cards.push(newCard);
+  res.status(201).json(newCard);
+});
+
+app.put('/api/cards/:id', (req, res) => {
+  const card = cards.find(c => c.id === parseInt(req.params.id));
+  if (!card) return res.status(404).json({ message: 'Card not found' });
+  const { suit, rank } = req.body;
+  if (suit) card.suit = suit;
+  if (rank) card.rank = rank;
+  res.json(card);
+});
+
+app.delete('/api/cards/:id', (req, res) => {
+  const index = cards.findIndex(c => c.id === parseInt(req.params.id));
+  if (index === -1) return res.status(404).json({ message: 'Card not found' });
+  const deletedCard = cards.splice(index, 1);
+  res.json(deletedCard[0]);
+});
+
+const PORT = 3000;
+app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
