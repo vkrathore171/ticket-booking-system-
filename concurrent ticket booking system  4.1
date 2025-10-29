@@ -1,0 +1,262 @@
+import React, { useEffect, useState, useRef } from "react";
+
+export default function SeatBooking() {
+  const [seats, setSeats] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [myLocks, setMyLocks] = useState({});
+  const wsRef = useRef(null);
+  const clientIdRef = useRef(generateClientId());
+  const LOCK_TTL = 30;
+
+  useEffect(() => {
+    fetchSeats();
+    connectWS();
+    const tick = setInterval(() => {
+      const now = Math.floor(Date.now() / 1000);
+      setMyLocks((prev) => {
+        const copy = { ...prev };
+        let changed = false;
+        for (const k of Object.keys(copy)) {
+          if (copy[k] <= now) {
+            delete copy[k];
+            changed = true;
+          }
+        }
+        return changed ? copy : prev;
+      });
+    }, 1000);
+    return () => {
+      clearInterval(tick);
+      disconnectWS();
+    };
+  }, []);
+
+  async function fetchSeats() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/seats");
+      const data = await res.json();
+      setSeats(data);
+    } catch (e) {
+      console.error("Failed to fetch seats", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function connectWS() {
+    const url = (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.host.replace(/:\d+$/, ":4000");
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "hello", clientId: clientIdRef.current }));
+    };
+
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        handleServerMessage(msg);
+      } catch (err) {
+        console.error("Invalid WS message", err);
+      }
+    };
+
+    ws.onclose = () => {
+      setTimeout(connectWS, 2000);
+    };
+
+    ws.onerror = (e) => {
+      ws.close();
+    };
+  }
+
+  function disconnectWS() {
+    if (wsRef.current) wsRef.current.close();
+    wsRef.current = null;
+  }
+
+  function handleServerMessage(msg) {
+    if (msg.type === "seats") {
+      setSeats(msg.seats);
+    } else if (msg.type === "seatLocked") {
+      setSeats((prev) => prev.map((s) => (s.id === msg.seatId ? { ...s, status: 'locked', lockedBy: msg.lockedBy, lockExpiry: msg.lockExpiry } : s)));
+    } else if (msg.type === "seatUnlocked") {
+      setSeats((prev) => prev.map((s) => (s.id === msg.seatId ? { ...s, status: 'available', lockedBy: null, lockExpiry: null } : s)));
+    } else if (msg.type === "seatBooked") {
+      setSeats((prev) => prev.map((s) => (s.id === msg.seatId ? { ...s, status: 'booked', lockedBy: null, lockExpiry: null } : s)));
+    }
+  }
+
+  async function lockSeat(seatId) {
+    const now = Math.floor(Date.now() / 1000);
+    const expiry = now + LOCK_TTL;
+    setMyLocks((m) => ({ ...m, [seatId]: expiry }));
+
+    try {
+      const res = await fetch(`/api/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId, clientId: clientIdRef.current, ttl: LOCK_TTL }),
+      });
+      const msg = await res.json();
+      if (!res.ok) {
+        setMyLocks((m) => {
+          const copy = { ...m }; delete copy[seatId]; return copy;
+        });
+        alert(msg.error || "Failed to lock seat");
+        fetchSeats();
+      }
+    } catch (e) {
+      setMyLocks((m) => { const copy = { ...m }; delete copy[seatId]; return copy; });
+      fetchSeats();
+    }
+  }
+
+  async function unlockSeat(seatId) {
+    setMyLocks((m) => { const copy = { ...m }; delete copy[seatId]; return copy; });
+    try {
+      await fetch(`/api/unlock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId, clientId: clientIdRef.current }),
+      });
+    } catch (e) {
+      fetchSeats();
+    }
+  }
+
+  async function bookSeats(seatIds) {
+    try {
+      const res = await fetch(`/api/book`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatIds, clientId: clientIdRef.current }),
+      });
+      const msg = await res.json();
+      if (!res.ok) {
+        alert(msg.error || "Booking failed");
+        fetchSeats();
+      } else {
+        setMyLocks((m) => {
+          const copy = { ...m };
+          seatIds.forEach((id) => delete copy[id]);
+          return copy;
+        });
+      }
+    } catch (e) {
+      fetchSeats();
+    }
+  }
+
+  function seatState(seat) {
+    const now = Math.floor(Date.now() / 1000);
+    if (seat.status === 'booked') return 'booked';
+    if (myLocks[seat.id] && myLocks[seat.id] > now) return 'locked-by-me';
+    if (seat.status === 'locked') {
+      if (seat.lockedBy === clientIdRef.current) return 'locked-by-me';
+      return 'locked-by-other';
+    }
+    return 'available';
+  }
+
+  function toggleSeat(seat) {
+    const st = seatState(seat);
+    if (st === 'available') {
+      lockSeat(seat.id);
+    } else if (st === 'locked-by-me') {
+      unlockSeat(seat.id);
+    } else {
+      alert('This seat is not available.');
+    }
+  }
+
+  const selectedSeatIds = Object.keys(myLocks);
+
+  return (
+    <div className="p-4 max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Concurrent Ticket Booking — Seat Map</h1>
+      <div className="mb-3 text-sm text-gray-600">Client ID: <code className="bg-gray-100 px-2 py-1 rounded">{clientIdRef.current}</code></div>
+
+      <div className="mb-4">
+        <div className="flex gap-3 items-center mb-2">
+          <LegendItem color="bg-white border-gray-300" label="Available" />
+          <LegendItem color="bg-yellow-100" label="Locked (you)" />
+          <LegendItem color="bg-red-100" label="Locked (other)" />
+          <LegendItem color="bg-green-100" label="Booked" />
+        </div>
+      </div>
+
+      {loading ? (
+        <div>Loading seats…</div>
+      ) : (
+        <div className="grid grid-cols-8 gap-2">
+          {seats.map((seat) => {
+            const st = seatState(seat);
+            return (
+              <button
+                key={seat.id}
+                onClick={() => toggleSeat(seat)}
+                className={`p-2 rounded-md border focus:outline-none focus:ring-2 focus:ring-offset-1 text-sm
+                  ${st === 'available' ? 'bg-white border-gray-300' : ''}
+                  ${st === 'locked-by-me' ? 'bg-yellow-100 border-yellow-400' : ''}
+                  ${st === 'locked-by-other' ? 'bg-red-100 border-red-400' : ''}
+                  ${st === 'booked' ? 'bg-green-100 border-green-400 cursor-not-allowed' : ''}
+                `}
+                aria-label={`Seat ${seat.row}${seat.col} - ${st}`}
+                disabled={st === 'booked' || st === 'locked-by-other'}
+              >
+                <div className="font-semibold">{seat.row}{seat.col}</div>
+                <div className="text-xs">{st === 'locked-by-me' ? 'Locked (you)' : st === 'locked-by-other' ? 'Locked' : st === 'booked' ? 'Booked' : 'Available'}</div>
+                {myLocks[seat.id] && (
+                  <Countdown expiry={myLocks[seat.id]} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mt-6 flex gap-3">
+        <button
+          className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
+          disabled={selectedSeatIds.length === 0}
+          onClick={() => bookSeats(selectedSeatIds)}
+        >
+          Book {selectedSeatIds.length > 0 ? `(${selectedSeatIds.length})` : ''}
+        </button>
+        <button
+          className="px-4 py-2 rounded bg-gray-200"
+          disabled={selectedSeatIds.length === 0}
+          onClick={() => selectedSeatIds.forEach((id) => unlockSeat(id))}
+        >
+          Cancel selection
+        </button>
+      </div>
+
+    </div>
+  );
+}
+
+function LegendItem({ color, label }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`w-6 h-6 border rounded ${color}`} />
+      <div className="text-xs">{label}</div>
+    </div>
+  );
+}
+
+function Countdown({ expiry }) {
+  const [now, setNow] = useState(Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 500);
+    return () => clearInterval(t);
+  }, []);
+  const left = Math.max(0, expiry - now);
+  return <div className="text-xs mt-1">{left}s</div>;
+}
+
+function generateClientId() {
+  return 'c_' + Math.random().toString(36).slice(2, 9);
+}
