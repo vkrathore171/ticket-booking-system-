@@ -1,0 +1,154 @@
+import React, { useEffect, useState } from "react";
+import reactLogo from './assets/react.svg'
+import viteLogo from '/vite.svg'
+import './App.css'
+
+
+import axios from "axios";
+
+export default function App() {
+  const [products, setProducts] = useState([]);
+  const [form, setForm] = useState({ name: "", price: "", description: "" });
+  const [editingId, setEditingId] = useState(null);
+
+  const API_URL = "http://localhost:5000/api/products"; // your backend endpoint
+
+  // Fetch all products
+  const fetchProducts = async () => {
+    try {
+      const res = await axios.get(API_URL);
+      setProducts(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  // Handle input change
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  // Add or update product
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingId) {
+        await axios.put(`${API_URL}/${editingId}`, form);
+        setEditingId(null);
+      } else {
+        await axios.post(API_URL, form);
+      }
+      setForm({ name: "", price: "", description: "" });
+      fetchProducts();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Delete product
+  const deleteProduct = async (id) => {
+    try {
+      await axios.delete(`${API_URL}/${id}`);
+      fetchProducts();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Edit product
+  const editProduct = (product) => {
+    setForm(product);
+    setEditingId(product._id);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center p-6">
+      <h1 className="text-3xl font-bold mb-6">🛍 Product Management</h1>
+
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white shadow-md p-6 rounded-lg w-full max-w-md"
+      >
+        <input
+          type="text"
+          name="name"
+          placeholder="Product Name"
+          value={form.name}
+          onChange={handleChange}
+          className="border w-full p-2 mb-3 rounded"
+          required
+        />
+        <input
+          type="number"
+          name="price"
+          placeholder="Price"
+          value={form.price}
+          onChange={handleChange}
+          className="border w-full p-2 mb-3 rounded"
+          required
+        />
+        <textarea
+          name="description"
+          placeholder="Description"
+          value={form.description}
+          onChange={handleChange}
+          className="border w-full p-2 mb-3 rounded"
+        />
+        <button
+          type="submit"
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          {editingId ? "Update Product" : "Add Product"}
+        </button>
+      </form>
+
+      <div className="mt-8 w-full max-w-3xl">
+        <table className="w-full bg-white shadow-md rounded-lg">
+          <thead>
+            <tr className="bg-gray-200 text-left">
+              <th className="p-3">Name</th>
+              <th className="p-3">Price</th>
+              <th className="p-3">Description</th>
+              <th className="p-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.length > 0 ? (
+              products.map((p) => (
+                <tr key={p._id} className="border-t">
+                  <td className="p-3">{p.name}</td>
+                  <td className="p-3">₹{p.price}</td>
+                  <td className="p-3">{p.description}</td>
+                  <td className="p-3 flex gap-2">
+                    <button
+                      onClick={() => editProduct(p)}
+                      className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteProduct(p._id)}
+                      className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td className="p-3 text-center" colSpan="4">
+                  No products found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
