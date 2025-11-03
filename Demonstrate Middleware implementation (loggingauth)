@@ -1,0 +1,86 @@
+import express from "express";
+import jwt from "jsonwebtoken";
+import bodyParser from "body-parser";
+import cors from "cors";
+
+const app = express();
+app.use(cors({ origin: true, credentials: true }));
+app.use(bodyParser.json());
+
+// Secret key for signing JWTs (store securely in production)
+const SECRET = "super-secret-key";
+
+// --- Middleware: Request Logging ---
+function logger(req, res, next) {
+  const time = new Date().toISOString();
+  console.log(`[${time}] ${req.method} ${req.url}`);
+  next(); // continue to next middleware
+}
+app.use(logger);
+
+// --- Middleware: JWT Authentication ---
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+  if (!token) return res.status(401).json({ message: "No token provided" });
+
+  jwt.verify(token, SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: "Invalid or expired token" });
+    req.user = user; // attach user payload to request
+    next(); // continue to the route
+  });
+}
+
+// --- ROUTES ---
+
+// Login route — issue token
+app.post("/api/auth/login", (req, res) => {
+  const { username, password } = req.body;
+  if (username !== "alice@example.com" || password !== "password123") {
+    return res.status(401).json({ message: "Invalid credentials" });
+  }
+  const user = { username };
+  const accessToken = jwt.sign(user, SECRET, { expiresIn: "2m" }); // 2 min token
+  res.json({ accessToken });
+});
+
+// Token refresh route
+app.post("/api/auth/refresh", (req, res) => {
+  const { refreshToken } = req.body;
+  // Normally you'd verify stored refresh tokens in DB
+  try {
+    const decoded = jwt.verify(refreshToken, SECRET);
+    const newAccess = jwt.sign({ username: decoded.username }, SECRET, { expiresIn: "2m" });
+    res.json({ accessToken: newAccess });
+  } catch (err) {
+    res.status(401).json({ message: "Refresh failed" });
+  }
+});
+
+// --- Protected Banking Endpoints ---
+app.get("/api/bank/accounts", authenticateToken, (req, res) => {
+  res.json({
+    user: req.user.username,
+    accounts: [
+      { id: "ACC001", balance: 10500.75 },
+      { id: "ACC002", balance: 3200.00 },
+    ],
+  });
+});
+
+app.get("/api/bank/transactions", authenticateToken, (req, res) => {
+  res.json({
+    transactions: [
+      { id: "T1001", type: "deposit", amount: 5000 },
+      { id: "T1002", type: "withdrawal", amount: 2000 },
+    ],
+  });
+});
+
+app.post("/api/bank/transfer", authenticateToken, (req, res) => {
+  const { from, to, amount } = req.body;
+  res.json({ message: `Transferred ₹${amount} from ${from} to ${to}` });
+});
+
+// Start server
+app.listen(5000, () => console.log("✅ Server running on http://localhost:5000"));
